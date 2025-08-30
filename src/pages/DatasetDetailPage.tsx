@@ -195,7 +195,7 @@ export function DatasetDetailPage() {
               <CardHeader>
                 <CardTitle>Videos</CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 max-h-[calc(100vh-200px)] overflow-y-auto">
                 <VideoList
                   videos={dataset.videos || []}
                   selectedVideo={selectedVideo}

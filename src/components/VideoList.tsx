@@ -62,7 +62,7 @@ export function VideoList({ videos, selectedVideo, onVideoSelect }: VideoListPro
         >
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-medium truncate">{video.filename}</p>
-            {getStatusIcon(video.status)}
+            <span className="min-w-4 max-w-4">{getStatusIcon(video.status)}</span>
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{formatDuration(video.duration)}</span>

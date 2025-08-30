@@ -209,33 +209,57 @@ export async function deleteDataset(id: number) {
 }
 
 async function processVideo(video: Video, outputPath: string, config: ProcessingConfig): Promise<void> {
-  // Parse resolution
-  const [resWidth, resHeight] = video.resolution.split('x').map(Number);
-  
-  // Build FFMPEG command
+  // Parse desired output resolution (fallback to crop dimensions if parse fails)
+  let outW: number | null = null;
+  let outH: number | null = null;
+  if (video.resolution) {
+    const parts = video.resolution.split('x');
+    if (parts.length === 2) {
+      const w = parseInt(parts[0] || '0', 10);
+      const h = parseInt(parts[1] || '0', 10);
+      if (w > 0 && h > 0) {
+        outW = w;
+        outH = h;
+      }
+    }
+  }
+  if (!outW || !outH) {
+    outW = video.cropWidth;
+    outH = video.cropHeight;
+  }
+
+  // Ensure crop region is inside source bounds
+  const cropX = Math.max(0, Math.min(video.originalWidth - 1, video.cropX));
+  const cropY = Math.max(0, Math.min(video.originalHeight - 1, video.cropY));
+  const cropW = Math.min(video.cropWidth, video.originalWidth - cropX);
+  const cropH = Math.min(video.cropHeight, video.originalHeight - cropY);
+
+  // Build filter chain: first crop the chosen region, then scale to requested output
+  // (If the crop already matches output size, scale is still explicit for consistency)
+  const filters = [`crop=${cropW}:${cropH}:${Math.round(cropX)}:${Math.round(cropY)}`];
+  if (outW && outH) {
+    filters.push(`scale=${outW}:${outH}`);
+  }
+  const filterStr = filters.join(',');
+
   const ffmpegArgs = [
     'ffmpeg',
     '-i', video.filepath,
     '-ss', video.startTime.toString(),
-    '-vf', `crop=${video.cropWidth}:${video.cropHeight}:${video.cropX}:${video.cropY},scale=${resWidth}:${resHeight}`,
+    '-vf', filterStr,
     '-r', config.fps.toString(),
     '-frames:v', config.frameCount.toString(),
     '-c:v', 'libx264',
     '-preset', 'medium',
     '-crf', '23',
-    '-y', // Overwrite output file
-    outputPath
+    '-y',
+    outputPath,
   ];
 
   console.log('Running FFMPEG with args:', ffmpegArgs);
 
-  const proc = Bun.spawn(ffmpegArgs, {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
+  const proc = Bun.spawn(ffmpegArgs, { stdout: 'pipe', stderr: 'pipe' });
   const exitCode = await proc.exited;
-
   if (exitCode === 0) {
     console.log(`Successfully processed video: ${outputPath}`);
   } else {

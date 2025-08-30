@@ -115,7 +115,7 @@ export async function uploadVideos(datasetId: number, req: Request) {
       await Bun.write(filepath, file);
       
       // Extract real video metadata using ffprobe
-      let duration = 30.0; // Default fallback
+      let duration = 16.0; // Default fallback
       let originalWidth = 1920; // Default fallback
       let originalHeight = 1080; // Default fallback
       let fps: number | undefined;
@@ -134,12 +134,41 @@ export async function uploadVideos(datasetId: number, req: Request) {
           originalWidth,
           originalHeight,
           fps,
-          frameCount
+          frameCount,
+          aspectRatio: originalWidth / originalHeight
         });
       } catch (error) {
         console.error(`Failed to extract metadata for ${file.name}:`, error);
         // Continue with default values as fallback
       }
+
+      const aspectRatio = originalWidth / originalHeight;
+      let cropWidth = 720;
+      let cropHeight = 1280;
+      let resolution: '1280x720' | '720x1280' | '768x768' = '720x1280'; // Default to portrait
+      
+      if (Math.abs(aspectRatio - 1) < 0.2) {
+        // Square-ish (within 20% of 1:1)
+        cropWidth = 768;
+        cropHeight = 768;
+        resolution = '768x768';
+      } else if (aspectRatio > 1) {
+        // Landscape (wider than tall)
+        cropWidth = 1280;
+        cropHeight = 720;
+        resolution = '1280x720';
+      }
+      // Portrait videos (aspectRatio < 1) keep the default values above
+      
+      console.log(`Resolution assignment for ${file.name}:`, {
+        aspectRatio,
+        resolution,
+        cropWidth,
+        cropHeight,
+        originalDimensions: `${originalWidth}x${originalHeight}`
+      });
+      
+      // Keep the exact target dimensions - FFmpeg will handle scaling up if needed
 
       const [newVideo] = await db
         .insert(videos)
@@ -150,8 +179,9 @@ export async function uploadVideos(datasetId: number, req: Request) {
           duration,
           originalWidth,
           originalHeight,
-          cropWidth: originalWidth,
-          cropHeight: originalHeight,
+          resolution,
+          cropWidth,
+          cropHeight,
           fps,
           frameCount,
           status: 'pending',

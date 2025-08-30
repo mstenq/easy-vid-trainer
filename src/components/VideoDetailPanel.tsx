@@ -18,9 +18,40 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [startTime, setStartTime] = useState(video.startTime);
-  const [resolution, setResolution] = useState(video.resolution);
+  
+  // Helper function to determine default resolution based on aspect ratio
+  // const getDefaultResolution = (width: number, height: number): '1280x720' | '720x1280' | '768x768' => {
+  //   const aspectRatio = width / height;
+    
+  //   if (Math.abs(aspectRatio - 1) < 0.2) {
+  //     // Square-ish (within 10% of 1:1)
+  //     return '768x768';
+  //   } else if (aspectRatio > 1) {
+  //     // Landscape (wider than tall)
+  //     return '1280x720';
+  //   } else {
+  //     // Portrait (taller than wide)
+  //     return '720x1280';
+  //   }
+  // };
+  
+  // Use smart default if video has the default 1280x720 resolution
+  // const getSmartResolution = () => {
+  //   // If the video has the database default resolution (1280x720), 
+  //   // check if a different resolution would be more appropriate
+  //   if (video.resolution === '1280x720') {
+  //     const smartDefault = getDefaultResolution(video.originalWidth, video.originalHeight);
+  //     return smartDefault;
+  //   }
+  //   return video.resolution;
+  // };
+  
+  const [resolution, setResolution] = useState<Video['resolution']>('768x768');
   const [cropX, setCropX] = useState(video.cropX);
   const [cropY, setCropY] = useState(video.cropY);
+  // Overlay crop box size (independent from final output resolution; final output will scale this region)
+  const [cropWidth, setCropWidth] = useState(video.cropWidth || video.originalWidth);
+  const [cropHeight, setCropHeight] = useState(video.cropHeight || video.originalHeight);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -30,49 +61,78 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
   const [currentVideoId, setCurrentVideoId] = useState(video.id);
   const [pendingSeekTime, setPendingSeekTime] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const cropOverlayRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
-  // Calculate crop dimensions based on resolution
-  const getCropDimensions = useCallback(() => {
-    const parts = resolution.split('x');
-    if (parts.length !== 2) return { width: 100, height: 100 };
-    
-    const width = parseInt(parts[0] || '0');
-    const height = parseInt(parts[1] || '0');
-    
-    if (!width || !height) return { width: 100, height: 100 };
-    
-    const videoAspectRatio = video.originalWidth / video.originalHeight;
-    const targetAspectRatio = width / height;
-    
-    let cropWidth, cropHeight;
-    
-    if (targetAspectRatio > videoAspectRatio) {
-      // Video is taller than target, fit by width
-      cropWidth = video.originalWidth;
-      cropHeight = Math.round(video.originalWidth / targetAspectRatio);
-    } else {
-      // Video is wider than target, fit by height
-      cropHeight = video.originalHeight;
-      cropWidth = Math.round(video.originalHeight * targetAspectRatio);
+  // Debounced save function to prevent infinite loops
+  const debouncedSave = useCallback(async () => {
+    const updatedVideo: Video = {
+      ...video,
+      startTime,
+      resolution,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+    };
+
+    try {
+      const savedVideo = await api.videos.update(video.id, updatedVideo);
+      onVideoUpdate(savedVideo);
+    } catch (error) {
+      console.error('Failed to update video:', error);
+    }
+  }, [video, startTime, resolution, cropX, cropY, cropWidth, cropHeight, onVideoUpdate]);
+
+  // Debounced save with timeout
+  const scheduleSave = useCallback(() => {
+    // Clear existing timeout
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
     }
     
-    return { width: cropWidth, height: cropHeight };
-  }, [resolution, video.originalWidth, video.originalHeight]);
+    // Schedule new save
+    const timeout = setTimeout(() => {
+      debouncedSave();
+    }, 500); // 500ms delay after user stops interacting
+    
+    setSaveTimeout(timeout);
+  }, [saveTimeout, debouncedSave]);
 
-  const cropDimensions = getCropDimensions();
+  // Helper to compute a suitably large crop box maintaining aspect of resolution
+  const computeCropSizeForResolution = useCallback((res: Video['resolution']) => {
+    const [rw, rh] = res.split('x').map(Number);
+    if (!rw || !rh) return { w: video.originalWidth, h: video.originalHeight };
+    const targetAspect = rw / rh;
+    const videoAspect = video.originalWidth / video.originalHeight;
+    let w: number, h: number;
+    // We choose the largest rectangle inside the original that matches aspect
+    if (targetAspect > videoAspect) {
+      // Limited by width
+      w = video.originalWidth;
+      h = Math.round(w / targetAspect);
+    } else {
+      // Limited by height
+      h = video.originalHeight;
+      w = Math.round(h * targetAspect);
+    }
+    return { w, h };
+  }, [video.originalWidth, video.originalHeight]);
 
   useEffect(() => {
     // Check if this is actually a different video
     const isNewVideo = video.id !== currentVideoId;
     
     setStartTime(video.startTime);
-    setResolution(video.resolution);
-    setCropX(video.cropX);
-    setCropY(video.cropY);
+  // Use stored resolution directly (ensures it matches the allowed union type)
+  setResolution(video.resolution);
+  setCropX(video.cropX);
+  setCropY(video.cropY);
+  setCropWidth(video.cropWidth || video.originalWidth);
+  setCropHeight(video.cropHeight || video.originalHeight);
     setVideoError(null);
     setVideoLoaded(false);
     setIsPlaying(false);
@@ -136,47 +196,56 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
     
     // Only recenter when resolution changes for the same video and crop is out of bounds
     const isOutOfBounds = 
-      cropX + cropDimensions.width > video.originalWidth ||
-      cropY + cropDimensions.height > video.originalHeight ||
+  cropX + cropWidth > video.originalWidth ||
+  cropY + cropHeight > video.originalHeight ||
       cropX < 0 ||
       cropY < 0;
     
     if (isOutOfBounds) {
-      const centerX = Math.max(0, (video.originalWidth - cropDimensions.width) / 2);
-      const centerY = Math.max(0, (video.originalHeight - cropDimensions.height) / 2);
+  const centerX = Math.max(0, (video.originalWidth - cropWidth) / 2);
+  const centerY = Math.max(0, (video.originalHeight - cropHeight) / 2);
       
       setCropX(centerX);
       setCropY(centerY);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cropDimensions.width, cropDimensions.height, resolution, cropX, cropY]);
+  }, [cropWidth, cropHeight, resolution, cropX, cropY]);
 
-  // Auto-save when resolution changes
+  // When resolution changes, adjust aspect ratio of overlay but keep its center position
   useEffect(() => {
-    // Don't auto-save on initial load
-    if (resolution !== video.resolution) {
-      const autoSave = async () => {
-        const updatedVideo: Video = {
-          ...video,
-          startTime,
-          resolution,
-          cropX,
-          cropY,
-          cropWidth: cropDimensions.width,
-          cropHeight: cropDimensions.height,
-        };
+    const { w, h } = computeCropSizeForResolution(resolution);
+    // Preserve center
+    const centerX = cropX + cropWidth / 2;
+    const centerY = cropY + cropHeight / 2;
+    let newCropX = Math.max(0, centerX - w / 2);
+    let newCropY = Math.max(0, centerY - h / 2);
+    // Clamp so box stays inside
+    if (newCropX + w > video.originalWidth) newCropX = video.originalWidth - w;
+    if (newCropY + h > video.originalHeight) newCropY = video.originalHeight - h;
+    setCropWidth(w);
+    setCropHeight(h);
+    setCropX(newCropX);
+    setCropY(newCropY);
+  }, [resolution, computeCropSizeForResolution]);
 
-        try {
-          const savedVideo = await api.videos.update(video.id, updatedVideo);
-          onVideoUpdate(savedVideo);
-        } catch (error) {
-          console.error('Failed to update video:', error);
-        }
-      };
-      
-      autoSave();
+  // Auto-save only for resolution changes (immediate) - crop changes use debounced save
+  useEffect(() => {
+    // Only save immediately when resolution changes
+    const shouldSave = resolution !== video.resolution;
+    
+    if (shouldSave) {
+      debouncedSave();
     }
-  }, [resolution]);
+  }, [resolution, video.resolution, debouncedSave]);
+
+  // Clean up save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+      }
+    };
+  }, [saveTimeout]);
 
   const handlePlayPause = async () => {
     if (videoRef.current && videoLoaded) {
@@ -225,8 +294,8 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
       resolution,
       cropX,
       cropY,
-      cropWidth: cropDimensions.width,
-      cropHeight: cropDimensions.height,
+          cropWidth,
+          cropHeight,
     };
 
     try {
@@ -374,12 +443,12 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
     const newY = (relativeY / videoDisplayDimensions.height) * video.originalHeight;
     
     // Constrain to video bounds
-    const maxX = video.originalWidth - cropDimensions.width;
-    const maxY = video.originalHeight - cropDimensions.height;
+  const maxX = video.originalWidth - cropWidth;
+  const maxY = video.originalHeight - cropHeight;
     
     setCropX(Math.max(0, Math.min(maxX, newX)));
     setCropY(Math.max(0, Math.min(maxY, newY)));
-  }, [isDragging, dragOffset, video.originalWidth, video.originalHeight, cropDimensions, videoDisplayDimensions]);
+  }, [isDragging, dragOffset, video.originalWidth, video.originalHeight, cropWidth, cropHeight, videoDisplayDimensions]);
 
   const handleMouseUp = useCallback(async () => {
     if (isDragging) {
@@ -391,8 +460,8 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
         resolution,
         cropX,
         cropY,
-        cropWidth: cropDimensions.width,
-        cropHeight: cropDimensions.height,
+  cropWidth,
+  cropHeight,
       };
 
       try {
@@ -402,7 +471,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
         console.error('Failed to update video:', error);
       }
     }
-  }, [isDragging, video, startTime, resolution, cropX, cropY, cropDimensions, onVideoUpdate]);
+  }, [isDragging, video, startTime, resolution, cropX, cropY, cropWidth, cropHeight, onVideoUpdate]);
 
   useEffect(() => {
     if (isDragging) {
@@ -418,7 +487,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
   return (
     <div className="flex flex-col xl:flex-row gap-6">
       {/* Video Player */}
-      <Card>
+      <Card className="flex-grow">
         <CardHeader>
           <CardTitle>{video.filename}</CardTitle>
           <CardDescription>
@@ -527,8 +596,8 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
                cropY < video.originalHeight && (() => {
                 const cropLeft = Math.max(0, videoDisplayDimensions.offsetX + (cropX / video.originalWidth) * videoDisplayDimensions.width);
                 const cropTop = Math.max(0, videoDisplayDimensions.offsetY + (cropY / video.originalHeight) * videoDisplayDimensions.height);
-                const cropWidth = Math.max(0, (cropDimensions.width / video.originalWidth) * videoDisplayDimensions.width);
-                const cropHeight = Math.max(0, (cropDimensions.height / video.originalHeight) * videoDisplayDimensions.height);
+                const cropWidthDisplay = Math.max(0, (cropWidth / video.originalWidth) * videoDisplayDimensions.width);
+                const cropHeightDisplay = Math.max(0, (cropHeight / video.originalHeight) * videoDisplayDimensions.height);
                 
                 // Only log if there's a positioning issue that needs attention
                 const expectedLeft = videoDisplayDimensions.offsetX + (cropX / video.originalWidth) * videoDisplayDimensions.width;
@@ -546,8 +615,8 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
                     style={{
                       left: cropLeft,
                       top: cropTop,
-                      width: cropWidth,
-                      height: cropHeight,
+                      width: cropWidthDisplay,
+                      height: cropHeightDisplay,
                     }}
                     onMouseDown={handleMouseDown}
                   >
@@ -619,6 +688,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
           {/* Resolution */}
           <div className="space-y-2">
             <Label>Output Resolution</Label>
+            {resolution}
             <Select value={resolution} onValueChange={(value: typeof resolution) => setResolution(value)}>
               <SelectTrigger>
                 <SelectValue />
@@ -629,6 +699,84 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
                 <SelectItem value="768x768">768×768 (1:1 Square)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Crop Dimensions */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <Label>Crop Size</Label>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => {
+                  const { w, h } = computeCropSizeForResolution(resolution);
+                  setCropWidth(w);
+                  setCropHeight(h);
+                  // Center the crop after resizing
+                  const centerX = Math.max(0, (video.originalWidth - w) / 2);
+                  const centerY = Math.max(0, (video.originalHeight - h) / 2);
+                  setCropX(centerX);
+                  setCropY(centerY);
+                  // Schedule debounced save
+                  scheduleSave();
+                }}
+                className="text-xs"
+              >
+                Reset to Max
+              </Button>
+            </div>
+            
+            {/* Single Crop Size Slider */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Size</span>
+                <span className="text-sm font-mono">{Math.round(cropWidth)}×{Math.round(cropHeight)}px</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                step="1"
+                value={(() => {
+                  // Calculate current scale as percentage of max possible size
+                  const { w: maxW, h: maxH } = computeCropSizeForResolution(resolution);
+                  if (maxW === 0 || maxH === 0) return 100;
+                  const scaleW = (cropWidth / maxW) * 100;
+                  const scaleH = (cropHeight / maxH) * 100;
+                  return Math.min(scaleW, scaleH); // Use the more constrained dimension
+                })()}
+                onChange={(e) => {
+                  const scale = parseInt(e.target.value) / 100;
+                  const { w: maxW, h: maxH } = computeCropSizeForResolution(resolution);
+                  
+                  const newWidth = Math.round(maxW * scale);
+                  const newHeight = Math.round(maxH * scale);
+                  
+                  // Ensure minimum size of 1px
+                  const finalWidth = Math.max(1, newWidth);
+                  const finalHeight = Math.max(1, newHeight);
+                  
+                  setCropWidth(finalWidth);
+                  setCropHeight(finalHeight);
+                  
+                  // Adjust position if crop would exceed bounds
+                  if (cropX + finalWidth > video.originalWidth) {
+                    setCropX(Math.max(0, video.originalWidth - finalWidth));
+                  }
+                  if (cropY + finalHeight > video.originalHeight) {
+                    setCropY(Math.max(0, video.originalHeight - finalHeight));
+                  }
+                  
+                  // Schedule debounced save
+                  scheduleSave();
+                }}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Small</span>
+                <span>Large</span>
+              </div>
+            </div>
           </div>
 
           {/* Delete Video */}

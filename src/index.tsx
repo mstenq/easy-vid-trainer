@@ -4,6 +4,8 @@ import { listDatasets, getDataset, createDataset, processDataset, deleteDataset 
 import { getVideo, updateVideo, uploadVideos, deleteVideo } from "./api/videos";
 
 const server = serve({
+  port: 3000,
+  maxRequestBodySize: 500 * 1024 * 1024, // 500MB limit for video uploads
   routes: {
     // Serve uploaded videos - must come before catch-all route
     "/uploads/*": async (req) => {
