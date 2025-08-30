@@ -169,6 +169,10 @@ export async function uploadVideos(datasetId: number, req: Request) {
       });
       
       // Keep the exact target dimensions - FFmpeg will handle scaling up if needed
+      
+      // Calculate centered crop position
+      const cropX = Math.max(0, Math.floor((originalWidth - cropWidth) / 2));
+      const cropY = Math.max(0, Math.floor((originalHeight - cropHeight) / 2));
 
       const [newVideo] = await db
         .insert(videos)
@@ -180,6 +184,8 @@ export async function uploadVideos(datasetId: number, req: Request) {
           originalWidth,
           originalHeight,
           resolution,
+          cropX,
+          cropY,
           cropWidth,
           cropHeight,
           fps,

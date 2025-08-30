@@ -64,15 +64,31 @@ export function DatasetDetailPage() {
     navigate(`/dataset/${id}/video/${video.id}`, { replace: true });
   };
 
-  const handleVideoUpdate = (updatedVideo: Video) => {
+  const handleVideoUpdate = async (updatedVideo: Video) => {
     if (!dataset || !dataset.videos) return;
     
-    const updatedVideos = dataset.videos.map(video => 
-      video.id === updatedVideo.id ? updatedVideo : video
-    );
-    
-    setDataset({ ...dataset, videos: updatedVideos });
-    setSelectedVideo(updatedVideo);
+    try {
+      // Call API to update the video in the database
+      const savedVideo = await api.videos.update(updatedVideo.id, {
+        startTime: updatedVideo.startTime,
+        resolution: updatedVideo.resolution,
+        cropX: updatedVideo.cropX,
+        cropY: updatedVideo.cropY,
+        cropWidth: updatedVideo.cropWidth,
+        cropHeight: updatedVideo.cropHeight,
+      });
+      
+      // Update local state with the saved video
+      const updatedVideos = dataset.videos.map(video => 
+        video.id === savedVideo.id ? savedVideo : video
+      );
+      
+      setDataset({ ...dataset, videos: updatedVideos });
+      setSelectedVideo(savedVideo);
+    } catch (error) {
+      console.error('Failed to update video:', error);
+      // Optionally show an error message to the user
+    }
   };
 
   const handleVideoDelete = (videoId: number) => {

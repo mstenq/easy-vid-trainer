@@ -17,15 +17,135 @@ interface ProcessingPanelProps {
 export function ProcessingPanel({ datasetId, videos }: ProcessingPanelProps) {
   const [fps, setFps] = useState(16);
   const [frameCount, setFrameCount] = useState(81);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress[]>([]);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const {
-    isProcessing,
-    processingProgress,
-    getConfiguredVideosCount,
-    getProcessedVideosCount,
-    startProcessing,
-    canProcess
-  } = useProcessing({ datasetId, videos });
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const getConfiguredVideosCount = () => {
+    return videos.filter(isVideoConfigured).length;
+  };
+
+  const getProcessedVideosCount = () => {
+    return videos.filter((video: Video) => video.status === 'processed').length;
+  };
+
+  const handleProcess = async () => {
+    setIsProcessing(true);
+    
+    // Immediately show all videos as "processing" for instant feedback
+    const initialProgress = videos.map((video: Video) => ({
+      videoId: video.id,
+      progress: video.status === 'processed' ? 100 : 25,
+      status: video.status === 'processed' ? 'completed' as const : 'processing' as const,
+      message: video.status === 'processed' ? 'Already processed' : 'Starting processing...',
+    }));
+    setProcessingProgress(initialProgress);
+
+    try {
+      // Start polling immediately to catch processing states
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const updatedDataset = await api.datasets.get(datasetId);
+          if (!updatedDataset || !updatedDataset.videos) return;
+
+          setProcessingProgress(currentProgress => {
+            const updatedProgress = (updatedDataset.videos || []).map((video: Video) => {
+              const prevProgress = currentProgress.find(p => p.videoId === video.id);
+              
+              let status: ProcessingProgress['status'] = 'idle';
+              let progress = 0;
+              let message = '';
+
+              switch (video.status) {
+                case 'processed':
+                  status = 'completed';
+                  progress = 100;
+                  message = 'Processing complete';
+                  break;
+                case 'error':
+                  status = 'error';
+                  progress = prevProgress?.progress || 0;
+                  message = 'Processing failed';
+                  break;
+                case 'pending':
+                  // Pending means it's currently being processed
+                  status = 'processing';
+                  progress = 75; // Show higher progress for processing state
+                  message = 'Processing video...';
+                  break;
+                default:
+                  // If we were processing and now back to default, keep processing state briefly
+                  if (prevProgress?.status === 'processing') {
+                    status = 'processing';
+                    progress = prevProgress.progress;
+                    message = prevProgress.message || 'Processing video...';
+                  } else {
+                    status = 'idle';
+                    progress = 0;
+                  }
+              }
+
+              return {
+                videoId: video.id,
+                progress,
+                status,
+                message,
+              };
+            });
+
+            // Check if all videos are done processing
+            const allDone = updatedProgress.every(p => 
+              p.status === 'completed' || p.status === 'error'
+            );
+
+            if (allDone) {
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
+              setIsProcessing(false);
+            }
+
+            return updatedProgress;
+          });
+        } catch (error) {
+          console.error('Failed to poll progress:', error);
+        }
+      }, 500); // Poll every 500ms for faster response
+
+      // Start the processing (this runs in background on server)
+      await api.processing.processDataset(datasetId, { fps, frameCount });
+
+      // Set a timeout to stop polling after a reasonable time (5 minutes)
+      setTimeout(() => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        setIsProcessing(false);
+      }, 300000);
+
+    } catch (error) {
+      console.error('Processing failed:', error);
+      setProcessingProgress(prev => 
+        prev.map(p => ({ ...p, status: 'error', message: 'Processing failed' }))
+      );
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      setIsProcessing(false);
+    }
+  };
 
   const getProcessingStatusIcon = (status: ProcessingProgress['status']) => {
     const IconComponent = getStatusIcon(status === 'completed' ? 'processed' : status === 'error' ? 'error' : 'pending');
@@ -36,9 +156,7 @@ export function ProcessingPanel({ datasetId, videos }: ProcessingPanelProps) {
     return <IconComponent className={`h-4 w-4 ${colorClass}`} />;
   };
 
-  const handleProcess = () => {
-    startProcessing({ fps, frameCount });
-  };
+  const canProcess = videos.length > 0 && getConfiguredVideosCount() > 0 && !isProcessing;
 
   return (
     <Card>
@@ -75,10 +193,10 @@ export function ProcessingPanel({ datasetId, videos }: ProcessingPanelProps) {
               disabled={isProcessing}
             />
           </div>
-          <div className="space-y-2">
-            <div>Seconds</div>
-            <div>{ ((frameCount -1) / fps) }</div>
-          </div>
+            <div className="space-y-2">
+              <div>Seconds</div>
+              <div>{ ((frameCount -1) / fps) }</div>
+            </div>
         </div>
 
         {/* Status Summary */}

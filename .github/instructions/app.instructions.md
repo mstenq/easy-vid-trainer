@@ -24,9 +24,11 @@ The entire backend AND the static React SPA are served by ONE Bun server defined
 
 ## 3. Key Technologies
 - Runtime: Bun (TypeScript). Single process.
-- Frontend: React SPA + Tailwind CSS + (planned / partial) shadcn/ui components.
+- Frontend: React SPA + Tailwind CSS + shadcn/ui components (fully implemented).
 - Database: SQLite via Drizzle ORM (schema in `src/db/schema.ts`).
 - Media: FFMPEG (invoked from Bun for processing pipeline).
+- Routing: React Router DOM for client-side navigation.
+- State Management: Custom React hooks for complex state logic.
 - Storage layout:
 	- Raw uploads: `uploads/<datasetId>/<timestamp_random>.<ext>` (current behavior).
 	- (Intended logical model) Raw canonical dataset path: `datasets/<datasetName>/vid_0001.mp4` etc.
@@ -35,18 +37,26 @@ The entire backend AND the static React SPA are served by ONE Bun server defined
 ## 4. Directory Outline (Relevant Only)
 Root files:
 - `src/index.tsx` – Bun server (API + static HTML + video file serving). CENTRAL.
+- `src/frontend.tsx` – React app entry point with HMR support.
+- `src/App.tsx` – Main React app with React Router setup.
 - `src/api/` – Endpoint helper modules (`datasets.ts`, `videos.ts`). Keep business logic here; routes call thin wrappers.
 - `src/db/` – DB setup + Drizzle schema.
-- `src/lib/` – Utility helpers (`video-metadata.ts`, `utils.ts`). Add reusable logic here instead of bloating route handlers.
-- `src/components/`, `src/pages/` – React UI building blocks and pages.
+- `src/lib/` – Utility helpers (`video-metadata.ts`, `utils.ts`, `video-utils.ts`). Add reusable logic here instead of bloating route handlers.
+- `src/components/` – React UI building blocks including shadcn/ui components.
+- `src/components/ui/` – Fully implemented shadcn/ui component library (button, card, dialog, input, label, progress, select).
+- `src/pages/` – Page-level components (`DatasetListPage.tsx`, `DatasetDetailPage.tsx`).
+- `src/hooks/` – Custom React hooks for complex state management (`useCropManagement.ts`, `useProcessing.ts`, `useVideoPlayer.ts`, etc.).
+- `src/services/` – API client layer (`api.ts`).
+- `src/types/` – TypeScript type definitions.
 - `output/` – Processed video artifacts (FFMPEG results). Never commit large binaries intentionally.
 - `uploads/` – Raw uploaded videos grouped by dataset ID directory.
 - `drizzle/` – Migration snapshots/journal (auto‑managed by Drizzle tooling).
+- `components.json` – shadcn/ui configuration file.
 
 ## 5. Data Model (Conceptual)
 Tables (see `schema.ts` for exact shape):
 - datasets: id, name, createdAt.
-- videos: id, datasetId, filename, filepath, dimensions, duration, startTime, resolution enum, crop rectangle, fps, frameCount, status.
+- videos: id, datasetId, filename, filepath, duration, originalWidth, originalHeight, startTime, resolution enum ('1280x720' | '720x1280' | '768x768'), cropX, cropY, cropWidth, cropHeight, fps, frameCount, status.
 Status lifecycle: `pending` -> (`processed` | `error`).
 
 ## 6. API Contract (Current/Planned)
@@ -85,8 +95,10 @@ TypeScript:
 
 React:
 - Components under `src/components/` should be small & focused.
-- Page-level composition in `src/pages/` – route mapping (client side) handled by SPA router (if/when introduced). For now manual conditional rendering in `App.tsx` is acceptable.
-- Use Tailwind utility classes; extract repeated patterns into component wrappers or shadcn/ui primitives.
+- Page-level composition in `src/pages/` – client-side routing handled by React Router DOM in `App.tsx`.
+- Use Tailwind utility classes; shadcn/ui components are fully implemented and available.
+- Custom hooks in `src/hooks/` manage complex state logic (video player, crop management, processing, etc.).
+- API interactions centralized in `src/services/api.ts`.
 
 Backend API helpers:
 - Keep route handlers thin; parse/validate input then delegate to service/DB functions.
@@ -150,20 +162,45 @@ File Paths:
 - Add `errorMessage` column to videos.
 - User auth (multi-tenant) & access control.
 - Thumbnail generation & preview sprites.
-- Drag-based crop UI component.
+- Enhanced drag-based crop UI improvements.
 
 ## 17. How AI Should Respond to New Requests
 When asked to:
 - Add an endpoint: modify `src/index.tsx` routes; DO NOT scaffold another server.
 - Change schema: update `schema.ts` + mention migration generation steps.
-- Add processing logic: create helper in `src/lib/` or `src/services/` (if created) and call from route handler.
-- Modify UI: keep styling with Tailwind; use accessible semantics.
+- Add processing logic: create helper in `src/lib/` or `src/services/` and call from route handler.
+- Modify UI: use Tailwind + shadcn/ui components; leverage existing custom hooks for state management.
+- Add new functionality: consider extracting complex logic into custom hooks in `src/hooks/`.
 
 ## 18. Code Quality Principles
 - Small, composable functions.
 - Pure transformations isolated for easy testing.
 - Minimal duplication; extract shared validation.
 - Log with clear context (dataset id, video id).
+
+## 19. Custom Hook Architecture
+The application uses a sophisticated custom hook system for state management:
+
+### Core Hooks
+- `useVideoPlayer` – Manages video playback state, current time, and time updates.
+- `useCropManagement` – Handles crop rectangle state, resolution changes, and auto-saving.
+- `useProcessing` – Manages processing workflows, progress tracking, and polling.
+- `useVideoDisplay` – Handles video display scaling and responsive dimensions.
+- `useDrag` – Provides drag-and-drop functionality for crop manipulation.
+- `useDebouncedSave` – Provides debounced save functionality to prevent excessive API calls.
+
+### Hook Design Patterns
+- Use refs to avoid stale closure issues in callbacks.
+- Provide cleanup functions for intervals and timeouts.
+- Centralize complex state logic to keep components clean.
+- Return both state and actions for maximum flexibility.
+- Use TypeScript generics for reusable hooks.
+
+### State Management Guidelines
+- Keep component state minimal; delegate complex logic to hooks.
+- Use hooks for cross-component state that doesn't need global sharing.
+- Prefer custom hooks over context for isolated feature state.
+- Always cleanup side effects (intervals, timeouts, event listeners) in useEffect cleanup.
 
 ---
 If a future change conflicts with this document, update this document FIRST so automated tooling stays aligned.
