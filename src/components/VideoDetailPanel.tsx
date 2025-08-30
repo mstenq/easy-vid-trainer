@@ -636,8 +636,6 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
           </div>
 
           {/* Delete Video */}
-          <div className="space-y-2 pt-4 border-t">
-            <Label className="text-destructive">Danger Zone</Label>
             <Button 
               variant="destructive" 
               onClick={handleDeleteVideo}
@@ -647,11 +645,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
               <Trash2 className="h-4 w-4 mr-2" />
               {isDeleting ? 'Deleting...' : 'Delete Video'}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              This will permanently delete the video file and remove it from the dataset.
-            </p>
-          </div>
-
+    
 
         </CardContent>
       </Card>

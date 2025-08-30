@@ -188,6 +188,7 @@ export function DatasetDetailPage() {
               <VideoDetailPanel
                 video={selectedVideo}
                 onVideoUpdate={handleVideoUpdate}
+                onVideoDelete={handleVideoDelete}
               />
             ) : (
               <Card>

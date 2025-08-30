@@ -1,7 +1,7 @@
 import { serve } from "bun";
 import index from "./index.html";
 import { listDatasets, getDataset, createDataset, processDataset } from "./api/datasets";
-import { getVideo, updateVideo, uploadVideos } from "./api/videos";
+import { getVideo, updateVideo, uploadVideos, deleteVideo } from "./api/videos";
 
 const server = serve({
   routes: {
@@ -83,6 +83,13 @@ const server = serve({
           return Response.json({ error: "Invalid video ID" }, { status: 400 });
         }
         return updateVideo(id, req);
+      },
+      async DELETE(req) {
+        const id = parseInt(req.params.id);
+        if (isNaN(id)) {
+          return Response.json({ error: "Invalid video ID" }, { status: 400 });
+        }
+        return deleteVideo(id);
       },
     },
 
