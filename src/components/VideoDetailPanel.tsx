@@ -551,11 +551,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
                     }}
                     onMouseDown={handleMouseDown}
                   >
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-medium shadow-lg">
-                        Crop Preview ({cropDimensions.width}×{cropDimensions.height})
-                      </div>
-                    </div>
+            
                   </div>
                 );
               })()}
