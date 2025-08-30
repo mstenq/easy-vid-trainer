@@ -32,6 +32,13 @@ export const api = {
         body: JSON.stringify({ name })
       });
       return handleResponse(response);
+    },
+
+    async delete(id: number): Promise<void> {
+      const response = await fetch(`${API_BASE_URL}/datasets/${id}`, {
+        method: 'DELETE'
+      });
+      await handleResponse(response);
     }
   },
 

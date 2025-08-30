@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { VideoList } from '@/components/VideoList';
 import { VideoDetailPanel } from '@/components/VideoDetailPanel';
 import { ProcessingPanel } from '@/components/ProcessingPanel';
 import { VideoUploadZone } from '@/components/VideoUploadZone';
-import { ArrowLeft, Upload } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2 } from 'lucide-react';
 import type { Dataset, Video } from '@/types';
 import api from '@/services/api';
 
@@ -17,6 +18,7 @@ export function DatasetDetailPage() {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -109,6 +111,17 @@ export function DatasetDetailPage() {
     }
   };
 
+  const handleDatasetDelete = async () => {
+    if (!dataset) return;
+    
+    try {
+      await api.datasets.delete(dataset.id);
+      navigate('/', { replace: true });
+    } catch (error) {
+      console.error('Failed to delete dataset:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -156,10 +169,20 @@ export function DatasetDetailPage() {
                 </p>
               </div>
             </div>
-            <Button onClick={() => setShowUpload(true)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Upload Videos
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="destructive" 
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Dataset
+              </Button>
+              <Button onClick={() => setShowUpload(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Videos
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -212,6 +235,37 @@ export function DatasetDetailPage() {
           onClose={() => setShowUpload(false)}
         />
       )}
+
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Dataset</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{dataset?.name}"? This will permanently delete:
+              <ul className="list-disc list-inside mt-2 text-sm">
+                <li>The dataset and all video records</li>
+                <li>All uploaded video files</li>
+                <li>All processed output files</li>
+              </ul>
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDatasetDelete}
+            >
+              Delete Dataset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

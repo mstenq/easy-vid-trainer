@@ -1,8 +1,9 @@
 import { db } from '@/db';
 import { datasets, videos, type Video } from '@/db/schema';
 import { eq, count } from 'drizzle-orm';
-import { mkdir } from 'fs/promises';
+import { mkdir, rmdir } from 'fs/promises';
 import { join, dirname } from 'path';
+import { existsSync } from 'fs';
 import type { ProcessingConfig } from '@/types';
 
 export async function listDatasets() {
@@ -142,6 +143,68 @@ export async function processDataset(datasetId: number, req: Request) {
   } catch (error) {
     console.error('Error processing dataset:', error);
     return Response.json({ error: 'Failed to process dataset' }, { status: 500 });
+  }
+}
+
+export async function deleteDataset(id: number) {
+  try {
+    // Get dataset with its videos before deletion
+    const dataset = await db.query.datasets.findFirst({
+      where: eq(datasets.id, id),
+      with: {
+        videos: true,
+      },
+    });
+
+    if (!dataset) {
+      return Response.json({ error: 'Dataset not found' }, { status: 404 });
+    }
+
+    // Delete video files from filesystem
+    for (const video of dataset.videos) {
+      try {
+        const file = Bun.file(video.filepath);
+        await file.delete();
+      } catch (fileError) {
+        console.warn('Could not delete video file:', video.filepath, fileError);
+        // Continue with other deletions even if one file fails
+      }
+    }
+
+    // Delete videos from database (will be handled by foreign key cascade, but let's be explicit)
+    await db
+      .delete(videos)
+      .where(eq(videos.datasetId, id));
+
+    // Delete the dataset from database
+    await db
+      .delete(datasets)
+      .where(eq(datasets.id, id));
+
+    // Delete uploads directory for this dataset
+    const uploadsDir = join(process.cwd(), 'uploads', id.toString());
+    try {
+      if (existsSync(uploadsDir)) {
+        await rmdir(uploadsDir, { recursive: true });
+      }
+    } catch (dirError) {
+      console.warn('Could not delete uploads directory:', uploadsDir, dirError);
+    }
+
+    // Delete output directory for this dataset
+    const outputDir = join(process.cwd(), 'output', dataset.name);
+    try {
+      if (existsSync(outputDir)) {
+        await rmdir(outputDir, { recursive: true });
+      }
+    } catch (dirError) {
+      console.warn('Could not delete output directory:', outputDir, dirError);
+    }
+
+    return Response.json({ message: 'Dataset deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting dataset:', error);
+    return Response.json({ error: 'Failed to delete dataset' }, { status: 500 });
   }
 }
 
