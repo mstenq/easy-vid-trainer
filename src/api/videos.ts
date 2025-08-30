@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { videos, datasets } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { extractVideoMetadata } from '@/lib/video-metadata';
+import { computeCropSizeForResolution, centerCrop } from '@/lib/video-utils';
 
 export async function getVideo(id: number) {
   try {
@@ -143,19 +144,13 @@ export async function uploadVideos(datasetId: number, req: Request) {
       }
 
       const aspectRatio = originalWidth / originalHeight;
-      let cropWidth = 720;
-      let cropHeight = 1280;
       let resolution: '1280x720' | '720x1280' | '768x768' = '720x1280'; // Default to portrait
       
       if (Math.abs(aspectRatio - 1) < 0.2) {
         // Square-ish (within 20% of 1:1)
-        cropWidth = 768;
-        cropHeight = 768;
         resolution = '768x768';
       } else if (aspectRatio > 1) {
         // Landscape (wider than tall)
-        cropWidth = 1280;
-        cropHeight = 720;
         resolution = '1280x720';
       }
       // Portrait videos (aspectRatio < 1) keep the default values above
@@ -163,16 +158,25 @@ export async function uploadVideos(datasetId: number, req: Request) {
       console.log(`Resolution assignment for ${file.name}:`, {
         aspectRatio,
         resolution,
-        cropWidth,
-        cropHeight,
         originalDimensions: `${originalWidth}x${originalHeight}`
       });
       
-      // Keep the exact target dimensions - FFmpeg will handle scaling up if needed
+      // Calculate correct crop dimensions for the chosen resolution
+      const { width: cropWidth, height: cropHeight } = computeCropSizeForResolution(
+        resolution,
+        originalWidth,
+        originalHeight
+      );
       
       // Calculate centered crop position
-      const cropX = Math.max(0, Math.floor((originalWidth - cropWidth) / 2));
-      const cropY = Math.max(0, Math.floor((originalHeight - cropHeight) / 2));
+      const { x: cropX, y: cropY } = centerCrop(cropWidth, cropHeight, originalWidth, originalHeight);
+
+      console.log(`Computed crop for ${file.name}:`, {
+        cropWidth,
+        cropHeight,
+        cropX,
+        cropY
+      });
 
       const [newVideo] = await db
         .insert(videos)

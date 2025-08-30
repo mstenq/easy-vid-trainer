@@ -60,7 +60,7 @@ export function VideoConfigurationPanel({
   };
 
   return (
-    <Card>
+    <Card  className="lg:min-w-86">
       <CardHeader>
         <CardTitle>Video Configuration</CardTitle>
         <CardDescription>
