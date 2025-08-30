@@ -80,6 +80,7 @@ export function VideoConfigurationPanel({
               min="0"
               max={video.duration}
               className="flex-1"
+              data-testid="start-time-input"
             />
             <Button size="sm" variant="outline" onClick={onCurrentAsStart}>
               Use Current ({formatTime(currentTime)})
@@ -90,7 +91,7 @@ export function VideoConfigurationPanel({
         {/* Resolution */}
         <div className="space-y-2">
           <Label>Output Resolution</Label>
-          <Select value={resolution} onValueChange={onResolutionChange}>
+          <Select value={resolution} onValueChange={onResolutionChange} data-testid="resolution-select">
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>

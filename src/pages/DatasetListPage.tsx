@@ -1,38 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateDatasetModal } from '@/components/CreateDatasetModal';
 import { Plus, Folder } from 'lucide-react';
-import type { Dataset } from '@/types';
-import api from '@/services/api';
+import { useDatasets, useCreateDataset } from '@/hooks/useQueries';
 
 export function DatasetListPage() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchDatasets();
-  }, []);
-
-  const fetchDatasets = async () => {
-    try {
-      const data = await api.datasets.list();
-      setDatasets(data);
-    } catch (error) {
-      console.error('Failed to fetch datasets:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: datasets = [], isLoading, error } = useDatasets();
+  const createDatasetMutation = useCreateDataset();
 
   const handleCreateDataset = async (name: string) => {
     try {
-      const newDataset = await api.datasets.create(name);
-      setDatasets(prev => [newDataset, ...prev]);
+      const newDataset = await createDatasetMutation.mutateAsync(name);
       setIsCreateModalOpen(false);
+      // Navigate to the newly created dataset
+      navigate(`/dataset/${newDataset.id}`);
     } catch (error) {
       console.error('Failed to create dataset:', error);
     }
@@ -46,12 +32,23 @@ export function DatasetListPage() {
     });
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading datasets...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-destructive mb-4">Failed to load datasets</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
         </div>
       </div>
     );

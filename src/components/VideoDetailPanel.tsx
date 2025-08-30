@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { VideoConfigurationPanel } from '@/components/VideoConfigurationPanel';
 import { CropOverlay } from '@/components/CropOverlay';
@@ -6,9 +6,8 @@ import { useVideoPlayer } from '@/hooks/useVideoPlayer';
 import { useCropManagement } from '@/hooks/useCropManagement';
 import { useVideoDisplay } from '@/hooks/useVideoDisplay';
 import { useDrag } from '@/hooks/useDrag';
-import { useDebouncedSave } from '@/hooks/useDebouncedSave';
+import { useUpdateVideo, useDeleteVideo } from '@/hooks/useQueries';
 import type { Video } from '@/types';
-import api from '@/services/api';
 
 interface VideoDetailPanelProps {
   video: Video;
@@ -18,43 +17,23 @@ interface VideoDetailPanelProps {
 
 export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoDetailPanelProps) {
   const [startTime, setStartTime] = useState(video.startTime);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const prevVideoIdRef = useRef<number>(video.id);
   
-  // Use refs to avoid recreating functions on every render
-  const videoRef = useRef(video);
-  const onVideoUpdateRef = useRef(onVideoUpdate);
-  
-  // Update refs when props change
-  videoRef.current = video;
-  onVideoUpdateRef.current = onVideoUpdate;
-
-  const handleVideoUpdate = useCallback(async (updatedVideo: Partial<Video>) => {
-    const savedVideo = await api.videos.update(videoRef.current.id, { ...videoRef.current, ...updatedVideo });
-    onVideoUpdateRef.current(savedVideo);
-  }, []);
+  const updateVideoMutation = useUpdateVideo();
+  const deleteVideoMutation = useDeleteVideo();
 
   // Custom hooks for video functionality
-  const videoPlayer = useVideoPlayer({ 
-    video, 
-    onVideoUpdate: handleVideoUpdate
-  });
-
-  const cropManagement = useCropManagement({ 
-    video, 
-    onVideoUpdate: handleVideoUpdate
-  });
-
+  const videoPlayer = useVideoPlayer();
+  const cropManagement = useCropManagement({ video });
   const videoDisplay = useVideoDisplay({
     originalWidth: video.originalWidth,
     originalHeight: video.originalHeight,
-    videoLoaded: videoPlayer.videoLoaded
   });
 
   const drag = useDrag({
     onDragEnd: (newX, newY) => {
       cropManagement.updateCropPosition(newX, newY);
-      // Don't call saveCropChanges immediately - let the debounced save handle it
-      cropManagement.scheduleSave();
     },
     videoDisplayDimensions: videoDisplay.videoDisplayDimensions,
     videoContainerRef: videoDisplay.videoContainerRef,
@@ -64,22 +43,40 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
     cropHeight: cropManagement.cropHeight
   });
 
-  const debouncedSave = useDebouncedSave({
-    onSave: handleVideoUpdate,
-    delay: 500
-  });
+  // Reset local state when video changes
+  useEffect(() => {
+    setStartTime(video.startTime);
+    // Only reset videoLoaded when video ID changes (new video)
+    if (video.id !== prevVideoIdRef.current) {
+      setVideoLoaded(false);
+      prevVideoIdRef.current = video.id;
+    }
+  }, [video.id, video.startTime]);
+
+  // Handle video loading and resizing
+  useEffect(() => {
+    const handleResize = () => videoDisplay.handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []); // No dependencies needed for resize handler
 
   const handleStartTimeChange = (newStartTime: number) => {
     setStartTime(newStartTime);
-    debouncedSave.scheduleSave({ startTime: newStartTime });
+    // Update via mutation
+    updateVideoMutation.mutate({
+      id: video.id,
+      data: { startTime: newStartTime }
+    });
   };
 
-  const handleCurrentAsStart = async () => {
+  const handleCurrentAsStart = () => {
     const newStartTime = videoPlayer.currentTime;
     setStartTime(newStartTime);
-    await debouncedSave.saveImmediately({ startTime: newStartTime });
-    // Trigger the video player's setCurrentAsStart for proper seek handling
-    videoPlayer.setCurrentAsStart();
+    // Immediate save
+    updateVideoMutation.mutate({
+      id: video.id,
+      data: { startTime: newStartTime }
+    });
   };
 
   const handleDeleteVideo = async () => {
@@ -87,20 +84,37 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
       return;
     }
 
-    setIsDeleting(true);
     try {
-      await api.videos.delete(video.id);
+      await deleteVideoMutation.mutateAsync(video.id);
       onVideoDelete(video.id);
     } catch (error) {
       console.error('Failed to delete video:', error);
       alert('Failed to delete video. Please try again.');
-    } finally {
-      setIsDeleting(false);
     }
   };
 
   const handleCropMouseDown = (e: React.MouseEvent) => {
     drag.handleMouseDown(e, cropManagement.cropX, cropManagement.cropY);
+  };
+
+  const handleVideoLoad = () => {
+    setVideoLoaded(true);
+    videoDisplay.handleVideoLoad();
+    // Automatically seek to start time when video loads
+    if (video.startTime > 0) {
+      videoPlayer.seekTo(video.startTime);
+    }
+  };
+
+  const handleVideoEnded = () => {
+    // Return to start time when video ends
+    if (video.startTime > 0) {
+      videoPlayer.seekTo(video.startTime);
+    }
+  };
+
+  const handleSeek = (time: number) => {
+    videoPlayer.seekTo(time);
   };
 
   return (
@@ -109,16 +123,19 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
         video={video}
         isPlaying={videoPlayer.isPlaying}
         currentTime={videoPlayer.currentTime}
-        videoError={videoPlayer.videoError}
-        videoLoaded={videoPlayer.videoLoaded}
+        videoError={null}
+        videoLoaded={videoLoaded}
         videoRef={videoPlayer.videoRef}
         videoContainerRef={videoDisplay.videoContainerRef}
-        onPlayPause={videoPlayer.handlePlayPause}
+        onPlayPause={videoPlayer.togglePlayPause}
         onTimeUpdate={videoPlayer.handleTimeUpdate}
-        onSeek={videoPlayer.handleSeek}
-        onLoadedMetadata={videoPlayer.handleLoadedMetadata}
-        onVideoError={videoPlayer.handleVideoError}
-        onVideoEnded={videoPlayer.handleVideoEnded}
+        onSeek={handleSeek}
+        onLoadedMetadata={() => {
+          videoPlayer.handleLoadedMetadata();
+          handleVideoLoad();
+        }}
+        onVideoError={() => {}}
+        onVideoEnded={handleVideoEnded}
       >
         <CropOverlay
           cropX={cropManagement.cropX}
@@ -131,7 +148,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
           isDragging={drag.isDragging}
           onMouseDown={handleCropMouseDown}
           videoId={video.id}
-          videoLoaded={videoPlayer.videoLoaded}
+          videoLoaded={videoLoaded}
           tempPosition={drag.tempPosition}
         />
       </VideoPlayer>
@@ -143,7 +160,7 @@ export function VideoDetailPanel({ video, onVideoUpdate, onVideoDelete }: VideoD
         resolution={cropManagement.resolution}
         cropWidth={cropManagement.cropWidth}
         cropHeight={cropManagement.cropHeight}
-        isDeleting={isDeleting}
+        isDeleting={deleteVideoMutation.isPending}
         onStartTimeChange={handleStartTimeChange}
         onCurrentAsStart={handleCurrentAsStart}
         onResolutionChange={cropManagement.handleResolutionChange}

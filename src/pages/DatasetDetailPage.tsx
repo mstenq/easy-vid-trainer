@@ -8,27 +8,24 @@ import { VideoDetailPanel } from '@/components/VideoDetailPanel';
 import { ProcessingPanel } from '@/components/ProcessingPanel';
 import { VideoUploadZone } from '@/components/VideoUploadZone';
 import { ArrowLeft, Upload, Trash2 } from 'lucide-react';
-import type { Dataset, Video } from '@/types';
-import api from '@/services/api';
+import { useDataset, useDeleteDataset, useUploadVideos } from '@/hooks/useQueries';
+import type { Video } from '@/types';
 
 export function DatasetDetailPage() {
   const { id, videoId } = useParams<{ id: string; videoId?: string }>();
   const navigate = useNavigate();
-  const [dataset, setDataset] = useState<Dataset | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
-  const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  useEffect(() => {
-    if (id) {
-      fetchDataset(parseInt(id));
-    }
-  }, [id]);
+  const datasetId = id ? parseInt(id) : 0;
+  const { data: dataset, isLoading, error } = useDataset(datasetId);
+  const deleteDatasetMutation = useDeleteDataset();
+  const uploadVideosMutation = useUploadVideos();
 
-  // Separate effect to handle video selection after dataset is loaded
+  // Handle video selection when dataset loads or videoId changes
   useEffect(() => {
-    if (dataset && dataset.videos && dataset.videos.length > 0) {
+    if (dataset?.videos && dataset.videos.length > 0) {
       if (videoId) {
         // Try to find the video with the specified ID
         const video = dataset.videos.find(v => v.id === parseInt(videoId));
@@ -45,66 +42,29 @@ export function DatasetDetailPage() {
     }
   }, [dataset, videoId, id, navigate]);
 
-  const fetchDataset = async (datasetId: number) => {
-    try {
-      const data = await api.datasets.get(datasetId);
-      if (!data) return;
-      
-      setDataset(data);
-      // Video selection is now handled by the separate useEffect
-    } catch (error) {
-      console.error('Failed to fetch dataset:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleVideoSelect = (video: Video) => {
     setSelectedVideo(video);
     navigate(`/dataset/${id}/video/${video.id}`, { replace: true });
   };
 
-  const handleVideoUpdate = async (updatedVideo: Video) => {
-    if (!dataset || !dataset.videos) return;
-    
-    try {
-      // Call API to update the video in the database
-      const savedVideo = await api.videos.update(updatedVideo.id, {
-        startTime: updatedVideo.startTime,
-        resolution: updatedVideo.resolution,
-        cropX: updatedVideo.cropX,
-        cropY: updatedVideo.cropY,
-        cropWidth: updatedVideo.cropWidth,
-        cropHeight: updatedVideo.cropHeight,
-      });
-      
-      // Update local state with the saved video
-      const updatedVideos = dataset.videos.map(video => 
-        video.id === savedVideo.id ? savedVideo : video
-      );
-      
-      setDataset({ ...dataset, videos: updatedVideos });
-      setSelectedVideo(savedVideo);
-    } catch (error) {
-      console.error('Failed to update video:', error);
-      // Optionally show an error message to the user
-    }
+  const handleVideoUpdate = (updatedVideo: Video) => {
+    // The video update is now handled by the useCropManagement hook
+    // and the TanStack Query mutations. This handler is kept for compatibility
+    // but may be removed as components are updated to use the new hooks directly.
+    setSelectedVideo(updatedVideo);
   };
 
   const handleVideoDelete = (videoId: number) => {
-    if (!dataset || !dataset.videos) return;
-    
-    const updatedVideos = dataset.videos.filter(video => video.id !== videoId);
-    setDataset({ ...dataset, videos: updatedVideos, videoCount: updatedVideos.length });
-    
+    // Video deletion is now handled by the useDeleteVideo mutation
     // If the deleted video was selected, navigate to another video or back to the dataset
     if (selectedVideo && selectedVideo.id === videoId) {
-      if (updatedVideos.length > 0) {
+      const remainingVideos = dataset?.videos?.filter(v => v.id !== videoId) || [];
+      if (remainingVideos.length > 0) {
         // Navigate to the first remaining video
-        navigate(`/dataset/${id}/video/${updatedVideos[0]!.id}`, { replace: true });
+        navigate(`/dataset/${id}/video/${remainingVideos[0]!.id}`, { replace: true });
       } else {
         // No videos left, navigate back to the dataset list
-        navigate('/datasets', { replace: true });
+        navigate('/', { replace: true });
       }
     }
   };
@@ -113,9 +73,7 @@ export function DatasetDetailPage() {
     if (!dataset) return;
     
     try {
-      const newVideos = await api.videos.upload(dataset.id, files);
-      const updatedVideos = [...(dataset.videos || []), ...newVideos];
-      setDataset({ ...dataset, videos: updatedVideos, videoCount: updatedVideos.length });
+      const newVideos = await uploadVideosMutation.mutateAsync({ datasetId: dataset.id, files });
       setShowUpload(false);
       
       // Navigate to the first uploaded video if any were uploaded
@@ -131,19 +89,30 @@ export function DatasetDetailPage() {
     if (!dataset) return;
     
     try {
-      await api.datasets.delete(dataset.id);
+      await deleteDatasetMutation.mutateAsync(dataset.id);
       navigate('/', { replace: true });
     } catch (error) {
       console.error('Failed to delete dataset:', error);
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading dataset...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-destructive mb-4">Failed to load dataset</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
         </div>
       </div>
     );

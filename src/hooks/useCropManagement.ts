@@ -1,227 +1,296 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { computeCropSizeForResolution, constrainCrop, centerCrop, isValidCrop } from '@/lib/video-utils';
+import { useUpdateVideo } from './useQueries';
 import type { Video } from '@/types';
 
 interface UseCropManagementOptions {
   video: Video;
-  onVideoUpdate: (video: Video) => void;
 }
 
-export function useCropManagement({ video, onVideoUpdate }: UseCropManagementOptions) {
-  const [resolution, setResolution] = useState<Video['resolution']>(video.resolution);
-  const [cropX, setCropX] = useState(video.cropX);
-  const [cropY, setCropY] = useState(video.cropY);
-  const [cropWidth, setCropWidth] = useState(video.cropWidth || video.originalWidth);
-  const [cropHeight, setCropHeight] = useState(video.cropHeight || video.originalHeight);
-  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+export function useCropManagement({ video }: UseCropManagementOptions) {
+  // Local state for crop values (optimistic updates)
+  const [localCrop, setLocalCrop] = useState({
+    resolution: video.resolution,
+    cropX: video.cropX,
+    cropY: video.cropY,
+    cropWidth: video.cropWidth || video.originalWidth,
+    cropHeight: video.cropHeight || video.originalHeight,
+  });
 
-  // Use refs to avoid stale closure issues
-  const cropXRef = useRef(cropX);
-  const cropYRef = useRef(cropY);
-  const cropWidthRef = useRef(cropWidth);
-  const cropHeightRef = useRef(cropHeight);
-  const resolutionRef = useRef(resolution);
+  const updateVideoMutation = useUpdateVideo();
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update refs when state changes
+  // Reset local state when video changes
   useEffect(() => {
-    cropXRef.current = cropX;
-  }, [cropX]);
+    setLocalCrop({
+      resolution: video.resolution,
+      cropX: video.cropX,
+      cropY: video.cropY,
+      cropWidth: video.cropWidth || video.originalWidth,
+      cropHeight: video.cropHeight || video.originalHeight,
+    });
+  }, [video.id, video.resolution, video.cropX, video.cropY, video.cropWidth, video.cropHeight, video.originalWidth, video.originalHeight]);
 
-  useEffect(() => {
-    cropYRef.current = cropY;
-  }, [cropY]);
-
-  useEffect(() => {
-    cropWidthRef.current = cropWidth;
-  }, [cropWidth]);
-
-  useEffect(() => {
-    cropHeightRef.current = cropHeight;
-  }, [cropHeight]);
-
-  useEffect(() => {
-    resolutionRef.current = resolution;
-  }, [resolution]);
-
-  // Reset state when video changes
-  useEffect(() => {
-    setResolution(video.resolution);
-    setCropX(video.cropX);
-    setCropY(video.cropY);
-    setCropWidth(video.cropWidth || video.originalWidth);
-    setCropHeight(video.cropHeight || video.originalHeight);
-  }, [video.id]); // Only depend on video.id to avoid resetting when crop values change
-
-  // Debounced save function
-  const debouncedSave = useCallback(async () => {
-    const updatedVideo: Video = {
-      ...video,
-      resolution: resolutionRef.current,
-      cropX: cropXRef.current,
-      cropY: cropYRef.current,
-      cropWidth: cropWidthRef.current,
-      cropHeight: cropHeightRef.current,
-    };
-
-    try {
-      onVideoUpdate(updatedVideo);
-    } catch (error) {
-      console.error('Failed to update video:', error);
-    }
-  }, [onVideoUpdate, video]); // Only depend on onVideoUpdate and video
-
-  // Debounced save with timeout
+  // Debounced save function that uses current state
   const scheduleSave = useCallback(() => {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
     }
-    
-    const timeout = setTimeout(() => {
-      debouncedSave();
+
+    saveTimeoutRef.current = setTimeout(() => {
+      setLocalCrop(currentCrop => {
+        updateVideoMutation.mutate({
+          id: video.id,
+          data: {
+            resolution: currentCrop.resolution,
+            cropX: currentCrop.cropX,
+            cropY: currentCrop.cropY,
+            cropWidth: currentCrop.cropWidth,
+            cropHeight: currentCrop.cropHeight,
+          },
+        });
+        return currentCrop; // Return same state to avoid re-render
+      });
+      saveTimeoutRef.current = null;
     }, 500);
-    
-    setSaveTimeout(timeout);
-  }, [saveTimeout, debouncedSave]);
+  }, [video.id, updateVideoMutation]);
 
-  // Clean up save timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeout) {
-        clearTimeout(saveTimeout);
-      }
-    };
-  }, [saveTimeout]);
-
-  // When resolution changes, adjust crop to fit new aspect ratio
-  useEffect(() => {
-    // Only recalculate if resolution actually changed
-    if (resolution === video.resolution) return;
-    
-    const { width: newWidth, height: newHeight } = computeCropSizeForResolution(
-      resolution, 
-      video.originalWidth, 
-      video.originalHeight
-    );
-    
-    // Preserve center position
-    const centerX = cropX + cropWidth / 2;
-    const centerY = cropY + cropHeight / 2;
-    
-    let newCropX = Math.max(0, centerX - newWidth / 2);
-    let newCropY = Math.max(0, centerY - newHeight / 2);
-    
-    // Constrain to video bounds
-    const constrained = constrainCrop(
-      newCropX, 
-      newCropY, 
-      newWidth, 
-      newHeight, 
-      video.originalWidth, 
-      video.originalHeight
-    );
-    
-    setCropWidth(newWidth);
-    setCropHeight(newHeight);
-    setCropX(constrained.x);
-    setCropY(constrained.y);
-  }, [resolution, video.resolution, video.originalWidth, video.originalHeight]);
-
-  // Auto-save when resolution changes (immediate)
-  useEffect(() => {
-    if (resolution !== video.resolution) {
-      debouncedSave();
+  // Save immediately (cancel debounce)
+  const saveImmediately = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
-  }, [resolution, video.resolution, debouncedSave]);
+    
+    setLocalCrop(currentCrop => {
+      updateVideoMutation.mutate({
+        id: video.id,
+        data: {
+          resolution: currentCrop.resolution,
+          cropX: currentCrop.cropX,
+          cropY: currentCrop.cropY,
+          cropWidth: currentCrop.cropWidth,
+          cropHeight: currentCrop.cropHeight,
+        },
+      });
+      return currentCrop;
+    });
+  }, [video.id, updateVideoMutation]);
 
-  // Center crop when it goes out of bounds (only run when video changes or crop becomes invalid)
-  useEffect(() => {
-    // Only run this when the video itself changes, not when crop coordinates change
-    if (!isValidCrop(cropX, cropY, cropWidth, cropHeight, video.originalWidth, video.originalHeight)) {
-      const centered = centerCrop(cropWidth, cropHeight, video.originalWidth, video.originalHeight);
-      setCropX(centered.x);
-      setCropY(centered.y);
-    }
-  }, [video.id, video.originalWidth, video.originalHeight]); // Only depend on video properties, not crop state
+  // Reset to video state from props
+  const resetToVideoState = useCallback(() => {
+    setLocalCrop({
+      resolution: video.resolution,
+      cropX: video.cropX,
+      cropY: video.cropY,
+      cropWidth: video.cropWidth || video.originalWidth,
+      cropHeight: video.cropHeight || video.originalHeight,
+    });
+  }, [video.resolution, video.cropX, video.cropY, video.cropWidth, video.cropHeight, video.originalWidth, video.originalHeight]);
 
+  // Update crop position
   const updateCropPosition = useCallback((newX: number, newY: number) => {
-    const constrained = constrainCrop(
-      newX, 
-      newY, 
-      cropWidth, 
-      cropHeight, 
-      video.originalWidth, 
-      video.originalHeight
-    );
-    
-    setCropX(constrained.x);
-    setCropY(constrained.y);
-  }, [cropWidth, cropHeight, video.originalWidth, video.originalHeight]);
+    setLocalCrop(currentCrop => {
+      const constrained = constrainCrop(
+        newX,
+        newY,
+        currentCrop.cropWidth,
+        currentCrop.cropHeight,
+        video.originalWidth,
+        video.originalHeight
+      );
 
+      const newCrop = {
+        ...currentCrop,
+        cropX: constrained.x,
+        cropY: constrained.y,
+      };
+
+      // Schedule save after state update
+      setTimeout(() => scheduleSave(), 0);
+      
+      return newCrop;
+    });
+  }, [video.originalWidth, video.originalHeight, scheduleSave]);
+
+  // Update crop size by scale
   const updateCropSize = useCallback((scale: number) => {
-    const { width: maxWidth, height: maxHeight } = computeCropSizeForResolution(
-      resolution, 
-      video.originalWidth, 
-      video.originalHeight
-    );
-    
-    const newWidth = Math.max(1, Math.round(maxWidth * scale));
-    const newHeight = Math.max(1, Math.round(maxHeight * scale));
-    
-    setCropWidth(newWidth);
-    setCropHeight(newHeight);
-    
-    // Adjust position if crop would exceed bounds
-    const constrained = constrainCrop(
-      cropX, 
-      cropY, 
-      newWidth, 
-      newHeight, 
-      video.originalWidth, 
-      video.originalHeight
-    );
-    setCropX(constrained.x);
-    setCropY(constrained.y);
-    
-    scheduleSave();
-  }, [resolution, video.originalWidth, video.originalHeight, cropX, cropY, scheduleSave]);
+    setLocalCrop(currentCrop => {
+      const { width: maxWidth, height: maxHeight } = computeCropSizeForResolution(
+        currentCrop.resolution,
+        video.originalWidth,
+        video.originalHeight
+      );
 
+      const newWidth = Math.max(1, Math.round(maxWidth * scale));
+      const newHeight = Math.max(1, Math.round(maxHeight * scale));
+
+      // Adjust position if crop would exceed bounds
+      const constrained = constrainCrop(
+        currentCrop.cropX,
+        currentCrop.cropY,
+        newWidth,
+        newHeight,
+        video.originalWidth,
+        video.originalHeight
+      );
+
+      const newCrop = {
+        ...currentCrop,
+        cropWidth: newWidth,
+        cropHeight: newHeight,
+        cropX: constrained.x,
+        cropY: constrained.y,
+      };
+
+      // Schedule save after state update
+      setTimeout(() => scheduleSave(), 0);
+
+      return newCrop;
+    });
+  }, [video.originalWidth, video.originalHeight, scheduleSave]);
+
+  // Reset crop to maximum size for current resolution
   const resetCropToMax = useCallback(() => {
-    const { width, height } = computeCropSizeForResolution(
-      resolution, 
-      video.originalWidth, 
+    setLocalCrop(currentCrop => {
+      const { width, height } = computeCropSizeForResolution(
+        currentCrop.resolution,
+        video.originalWidth,
+        video.originalHeight
+      );
+      const centered = centerCrop(width, height, video.originalWidth, video.originalHeight);
+
+      const newCrop = {
+        ...currentCrop,
+        cropWidth: width,
+        cropHeight: height,
+        cropX: centered.x,
+        cropY: centered.y,
+      };
+
+      // Schedule save after state update
+      setTimeout(() => scheduleSave(), 0);
+
+      return newCrop;
+    });
+  }, [video.originalWidth, video.originalHeight, scheduleSave]);
+
+  // Handle resolution change
+  const handleResolutionChange = useCallback((newResolution: Video['resolution']) => {
+    setLocalCrop(currentCrop => {
+      const { width: newWidth, height: newHeight } = computeCropSizeForResolution(
+        newResolution,
+        video.originalWidth,
+        video.originalHeight
+      );
+
+      // Preserve center position
+      const centerX = currentCrop.cropX + currentCrop.cropWidth / 2;
+      const centerY = currentCrop.cropY + currentCrop.cropHeight / 2;
+
+      let newCropX = Math.max(0, centerX - newWidth / 2);
+      let newCropY = Math.max(0, centerY - newHeight / 2);
+
+      // Constrain to video bounds
+      const constrained = constrainCrop(
+        newCropX,
+        newCropY,
+        newWidth,
+        newHeight,
+        video.originalWidth,
+        video.originalHeight
+      );
+
+      const newCrop = {
+        ...currentCrop,
+        resolution: newResolution,
+        cropWidth: newWidth,
+        cropHeight: newHeight,
+        cropX: constrained.x,
+        cropY: constrained.y,
+      };
+
+      // Save immediately for resolution changes
+      setTimeout(() => {
+        updateVideoMutation.mutate({
+          id: video.id,
+          data: newCrop,
+        });
+      }, 0);
+
+      return newCrop;
+    });
+  }, [video.originalWidth, video.originalHeight, video.id, updateVideoMutation]);
+
+  // Check if crop is valid and centered when needed
+  const cropNeedsReset = useMemo(() => {
+    return !isValidCrop(
+      localCrop.cropX,
+      localCrop.cropY,
+      localCrop.cropWidth,
+      localCrop.cropHeight,
+      video.originalWidth,
       video.originalHeight
     );
-    const centered = centerCrop(width, height, video.originalWidth, video.originalHeight);
-    
-    setCropWidth(width);
-    setCropHeight(height);
-    setCropX(centered.x);
-    setCropY(centered.y);
-    scheduleSave();
-  }, [resolution, video.originalWidth, video.originalHeight, scheduleSave]);
+  }, [localCrop.cropX, localCrop.cropY, localCrop.cropWidth, localCrop.cropHeight, video.originalWidth, video.originalHeight]);
 
-  const handleResolutionChange = useCallback((newResolution: Video['resolution']) => {
-    setResolution(newResolution);
+  // Auto-fix invalid crop
+  const fixInvalidCrop = useCallback(() => {
+    if (cropNeedsReset) {
+      setLocalCrop(currentCrop => {
+        const centered = centerCrop(
+          currentCrop.cropWidth,
+          currentCrop.cropHeight,
+          video.originalWidth,
+          video.originalHeight
+        );
+
+        const newCrop = {
+          ...currentCrop,
+          cropX: centered.x,
+          cropY: centered.y,
+        };
+
+        setTimeout(() => scheduleSave(), 0);
+        return newCrop;
+      });
+    }
+  }, [cropNeedsReset, video.originalWidth, video.originalHeight, scheduleSave]);
+
+  // Cleanup timeout on unmount
+  const cleanup = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
   }, []);
 
-  const saveCropChanges = useCallback(async () => {
-    await debouncedSave();
-  }, [debouncedSave]);
+  // Cleanup on unmount
+  useEffect(() => {
+    return cleanup;
+  }, [cleanup]);
 
   return {
-    // State
-    resolution,
-    cropX,
-    cropY,
-    cropWidth,
-    cropHeight,
-    
+    // State (using local optimistic state)
+    resolution: localCrop.resolution,
+    cropX: localCrop.cropX,
+    cropY: localCrop.cropY,
+    cropWidth: localCrop.cropWidth,
+    cropHeight: localCrop.cropHeight,
+
     // Actions
     updateCropPosition,
     updateCropSize,
     resetCropToMax,
     handleResolutionChange,
-    saveCropChanges,
-    scheduleSave,
+    saveImmediately,
+    resetToVideoState,
+    fixInvalidCrop,
+    cleanup,
+
+    // Status
+    isLoading: updateVideoMutation.isPending,
+    error: updateVideoMutation.error,
+    cropNeedsReset,
   };
 }

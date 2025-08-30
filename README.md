@@ -144,6 +144,41 @@ interface Video {
 - `bun run dev` - Start development server with hot reload
 - `bun run build` - Build for production
 - `bun run start` - Start production server
+- `bun test` - Run end-to-end tests
+- `bun run test:ui` - Run tests in interactive UI mode
+- `bun run test:headed` - Run tests in headed browser mode
+- `bun run test:debug` - Debug tests step by step
+
+### Testing
+
+The project includes comprehensive end-to-end tests using Playwright:
+
+```bash
+# Setup tests (one time)
+./test.sh setup
+
+# Run all tests
+./test.sh run
+
+# Run tests interactively  
+./test.sh ui
+
+# Run specific tests
+./test.sh single "dataset creation"
+
+# Debug tests
+./test.sh debug
+```
+
+The test suite covers:
+- Dataset creation and management
+- Video upload functionality
+- Video configuration (start time, resolution, crop settings)
+- Data persistence across page reloads
+- API endpoint integration
+- Error handling scenarios
+
+See `tests/README.md` for detailed testing documentation.
 
 ### Adding Components
 

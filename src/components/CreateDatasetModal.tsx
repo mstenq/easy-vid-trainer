@@ -60,6 +60,7 @@ export function CreateDatasetModal({ open, onOpenChange, onCreateDataset }: Crea
               </Label>
               <Input
                 id="name"
+                data-testid="dataset-name-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="col-span-3"
@@ -79,6 +80,7 @@ export function CreateDatasetModal({ open, onOpenChange, onCreateDataset }: Crea
             </Button>
             <Button 
               type="submit" 
+              data-testid="create-dataset-submit"
               disabled={!name.trim() || isLoading}
             >
               {isLoading ? 'Creating...' : 'Create Dataset'}

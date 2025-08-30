@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useProcessDataset, queryKeys } from './useQueries';
 import { isVideoConfigured } from '@/lib/video-utils';
 import type { Video, ProcessingProgress, ProcessingConfig } from '@/types';
-import api from '@/services/api';
 
 interface UseProcessingOptions {
   datasetId: number;
@@ -9,18 +10,11 @@ interface UseProcessingOptions {
 }
 
 export function useProcessing({ datasetId, videos }: UseProcessingOptions) {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress[]>([]);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [pollIntervalId, setPollIntervalId] = useState<NodeJS.Timeout | null>(null);
 
-  // Cleanup polling interval on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []);
+  const processDatasetMutation = useProcessDataset();
+  const queryClient = useQueryClient();
 
   const getConfiguredVideosCount = useCallback(() => {
     return videos.filter(isVideoConfigured).length;
@@ -30,10 +24,84 @@ export function useProcessing({ datasetId, videos }: UseProcessingOptions) {
     return videos.filter((video: Video) => video.status === 'processed').length;
   }, [videos]);
 
+  const startPolling = useCallback(() => {
+    if (pollIntervalId) return; // Already polling
+
+    const intervalId = setInterval(async () => {
+      try {
+        // Refetch the dataset to get updated video statuses
+        await queryClient.invalidateQueries({ queryKey: queryKeys.dataset(datasetId) });
+        
+        // Get the updated data from cache
+        const updatedDataset = queryClient.getQueryData(queryKeys.dataset(datasetId)) as any;
+        
+        if (updatedDataset?.videos) {
+          const updatedProgress = updatedDataset.videos.map((video: Video) => {
+            let status: ProcessingProgress['status'] = 'idle';
+            let progress = 0;
+            let message = '';
+
+            switch (video.status) {
+              case 'processed':
+                status = 'completed';
+                progress = 100;
+                message = 'Processing complete';
+                break;
+              case 'error':
+                status = 'error';
+                progress = 0;
+                message = 'Processing failed';
+                break;
+              case 'pending':
+                status = 'processing';
+                progress = 75;
+                message = 'Processing video...';
+                break;
+              default:
+                status = 'idle';
+                progress = 0;
+                message = 'Waiting to start...';
+            }
+
+            return {
+              videoId: video.id,
+              progress,
+              status,
+              message,
+            };
+          });
+
+          setProcessingProgress(updatedProgress);
+
+          // Check if all videos are completed or errored
+          const allDone = updatedProgress.every((p: ProcessingProgress) => p.status === 'completed' || p.status === 'error');
+          if (allDone) {
+            stopPolling();
+          }
+        }
+      } catch (error) {
+        console.error('Error polling dataset status:', error);
+        stopPolling();
+      }
+    }, 2000);
+
+    setPollIntervalId(intervalId);
+
+    // Safety net: stop polling after 5 minutes
+    setTimeout(() => {
+      stopPolling();
+    }, 300000);
+  }, [datasetId, queryClient, pollIntervalId]);
+
+  const stopPolling = useCallback(() => {
+    if (pollIntervalId) {
+      clearInterval(pollIntervalId);
+      setPollIntervalId(null);
+    }
+  }, [pollIntervalId]);
+
   const startProcessing = useCallback(async (config: ProcessingConfig) => {
-    setIsProcessing(true);
-    
-    // Immediately show all videos as "processing" for instant feedback
+    // Initialize progress for all videos
     const initialProgress = videos.map((video: Video) => ({
       videoId: video.id,
       progress: video.status === 'processed' ? 100 : 25,
@@ -43,111 +111,34 @@ export function useProcessing({ datasetId, videos }: UseProcessingOptions) {
     setProcessingProgress(initialProgress);
 
     try {
-      // Start polling immediately to catch processing states
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const updatedDataset = await api.datasets.get(datasetId);
-          if (!updatedDataset || !updatedDataset.videos) return;
-
-          setProcessingProgress(currentProgress => {
-            const updatedProgress = (updatedDataset.videos || []).map((video: Video) => {
-              const prevProgress = currentProgress.find(p => p.videoId === video.id);
-              
-              let status: ProcessingProgress['status'] = 'idle';
-              let progress = 0;
-              let message = '';
-
-              switch (video.status) {
-                case 'processed':
-                  status = 'completed';
-                  progress = 100;
-                  message = 'Processing complete';
-                  break;
-                case 'error':
-                  status = 'error';
-                  progress = prevProgress?.progress || 0;
-                  message = 'Processing failed';
-                  break;
-                case 'pending':
-                  // Pending means it's currently being processed
-                  status = 'processing';
-                  progress = 75; // Show higher progress for processing state
-                  message = 'Processing video...';
-                  break;
-                default:
-                  // If we were processing and now back to default, keep processing state briefly
-                  if (prevProgress?.status === 'processing') {
-                    status = 'processing';
-                    progress = prevProgress.progress;
-                    message = prevProgress.message || 'Processing video...';
-                  } else {
-                    status = 'idle';
-                    progress = 0;
-                    message = 'Waiting to start...';
-                  }
-              }
-
-              return {
-                videoId: video.id,
-                progress,
-                status,
-                message,
-              };
-            });
-
-            // Check if all videos are completed or errored
-            const allDone = updatedProgress.every(p => p.status === 'completed' || p.status === 'error');
-            if (allDone && isProcessing) {
-              // Stop polling after a short delay to let final state settle
-              setTimeout(() => {
-                if (pollIntervalRef.current) {
-                  clearInterval(pollIntervalRef.current);
-                  pollIntervalRef.current = null;
-                }
-                setIsProcessing(false);
-              }, 2000);
-            }
-
-            return updatedProgress;
-          });
-        } catch (error) {
-          console.error('Error polling dataset status:', error);
-        }
-      }, 2000); // Poll every 2 seconds
-
-      // Call the API to start processing
-      await api.processing.processDataset(datasetId, config);
-
-      // Stop processing after 5 minutes (safety net)
-      setTimeout(() => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-        setIsProcessing(false);
-      }, 300000);
-
+      // Start the processing
+      await processDatasetMutation.mutateAsync({ datasetId, config });
+      
+      // Start polling for updates
+      startPolling();
     } catch (error) {
       console.error('Processing failed:', error);
       setProcessingProgress(prev => 
         prev.map(p => ({ ...p, status: 'error' as const, message: 'Processing failed' }))
       );
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      setIsProcessing(false);
     }
-  }, [datasetId, videos, isProcessing]);
+  }, [datasetId, videos, processDatasetMutation, startPolling]);
 
-  const canProcess = videos.length > 0 && getConfiguredVideosCount() > 0 && !isProcessing;
+  // Cleanup function to stop polling
+  const cleanup = useCallback(() => {
+    stopPolling();
+  }, [stopPolling]);
+
+  const canProcess = videos.length > 0 && getConfiguredVideosCount() > 0 && !processDatasetMutation.isPending;
 
   return {
-    isProcessing,
+    isProcessing: processDatasetMutation.isPending || !!pollIntervalId,
     processingProgress,
     getConfiguredVideosCount,
     getProcessedVideosCount,
     startProcessing,
     canProcess,
+    cleanup,
+    error: processDatasetMutation.error,
   };
 }

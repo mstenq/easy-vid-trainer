@@ -158,10 +158,11 @@ export function VideoUploadZone({ onUpload, onClose }: VideoUploadZoneProps) {
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={onClose} data-testid="upload-cancel-button">
               Cancel
             </Button>
             <Button 
+              data-testid="upload-submit-button"
               onClick={() => onUpload([...acceptedFiles])}
               disabled={acceptedFiles.length === 0}
             >

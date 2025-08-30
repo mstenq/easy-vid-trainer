@@ -81,6 +81,7 @@ export function CropOverlay({
   return (
     <div 
       key={`crop-${videoId}-${cropX}-${cropY}`}
+      data-testid="crop-overlay"
       className={`absolute border-2 border-red-500 bg-red-500/20 cursor-move ${isDragging ? 'border-red-400' : ''}`}
       style={overlayStyle}
       onMouseDown={onMouseDown}

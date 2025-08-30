@@ -6,16 +6,15 @@ import { Progress } from '@/components/ui/progress';
 import { Play, AlertCircle, CheckCircle, Clock, Wrench } from 'lucide-react';
 import { useProcessing } from '@/hooks/useProcessing';
 import type { Video, ProcessingConfig } from '@/types';
-import { Input } from './ui/input';
 
 interface ProcessingPanelProps {
   datasetId: number;
   videos: Video[];
 }
 
-export function ProcessingPanel({ datasetId, videos }: ProcessingPanelProps) {
-  const [fps, setFps] = useState<number>(16);
-  const [frameCount, setFrameCount] = useState<number>(81);
+export function ProcessingPanelSimple({ datasetId, videos }: ProcessingPanelProps) {
+  const [fps, setFps] = useState<number>(30);
+  const [frameCount, setFrameCount] = useState<number>(3000);
 
   const {
     isProcessing,
@@ -73,25 +72,32 @@ export function ProcessingPanel({ datasetId, videos }: ProcessingPanelProps) {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">FPS</label>
-            <Input
-              type="number"
-              value={fps}
-              onChange={(e) => setFps(parseInt(e.target.value))}
-              min={1}
-              max={60}
-            />
+            <Select value={fps.toString()} onValueChange={(value) => setFps(parseInt(value))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24">24 FPS</SelectItem>
+                <SelectItem value="25">25 FPS</SelectItem>
+                <SelectItem value="30">30 FPS</SelectItem>
+                <SelectItem value="60">60 FPS</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Frame Count</label>
-            <Input
-              type="number"
-              value={frameCount}
-              onChange={(e) => setFrameCount(parseInt(e.target.value))}
-              min={1}
-              max={10000}
-            />
-
+            <Select value={frameCount.toString()} onValueChange={(value) => setFrameCount(parseInt(value))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1000">1,000 frames</SelectItem>
+                <SelectItem value="3000">3,000 frames</SelectItem>
+                <SelectItem value="5000">5,000 frames</SelectItem>
+                <SelectItem value="10000">10,000 frames</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

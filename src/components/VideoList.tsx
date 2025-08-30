@@ -28,6 +28,8 @@ export function VideoList({ videos, selectedVideo, onVideoSelect }: VideoListPro
         return (
           <div
             key={video.id}
+            data-testid="video-item"
+            data-video-id={video.id}
             onClick={() => onVideoSelect(video)}
             className={cn(
               'p-3 cursor-pointer border-l-4 transition-colors hover:bg-accent',

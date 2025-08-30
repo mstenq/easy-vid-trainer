@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "bun --hot src/index.tsx",
     "start": "NODE_ENV=production bun src/index.tsx",
-    "build": "bun run build.ts"
+    "build": "bun run build.ts",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -14,6 +18,7 @@
     "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.2.3",
+    "@tanstack/react-query": "^5.85.6",
     "@types/react-dropzone": "^5.1.0",
     "@types/react-router-dom": "^5.3.3",
     "bun-plugin-tailwind": "^0.0.15",
@@ -31,8 +36,9 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/bun": "latest",
     "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@types/bun": "latest"
+    "@types/react-dom": "^19"
   }
 }
