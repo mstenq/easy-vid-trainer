@@ -4,10 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
-    <title>Bun + React</title>
+    <title>Easy Vid Trainer</title>
+    <script>
+      // Prevent flash of wrong theme
+      (function() {
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
+        
+        if (shouldBeDark) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <script type="module" src="./frontend.tsx" async></script>
   </head>
   <body>
-    <div id="root" class="light"></div>
+    <div id="root"></div>
   </body>
 </html>

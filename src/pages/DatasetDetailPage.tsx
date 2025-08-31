@@ -7,14 +7,15 @@ import { VideoList } from '@/components/VideoList';
 import { VideoDetailPanel } from '@/components/VideoDetailPanel';
 import { ProcessingPanel } from '@/components/ProcessingPanel';
 import { VideoUploadZone } from '@/components/VideoUploadZone';
-import { ArrowLeft, Upload, Trash2 } from 'lucide-react';
+import { Header } from '@/components/Header';
+import { ArrowLeft, Upload, Trash2, Video, Sparkles } from 'lucide-react';
 import { useDataset, useDeleteDataset, useUploadVideos } from '@/hooks/useQueries';
-import type { Video } from '@/types';
+import type { Video as VideoType } from '@/types';
 
 export function DatasetDetailPage() {
   const { id, videoId } = useParams<{ id: string; videoId?: string }>();
   const navigate = useNavigate();
-  const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<VideoType | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -42,12 +43,12 @@ export function DatasetDetailPage() {
     }
   }, [dataset, videoId, id, navigate]);
 
-  const handleVideoSelect = (video: Video) => {
+  const handleVideoSelect = (video: VideoType) => {
     setSelectedVideo(video);
     navigate(`/dataset/${id}/video/${video.id}`, { replace: true });
   };
 
-  const handleVideoUpdate = (updatedVideo: Video) => {
+  const handleVideoUpdate = (updatedVideo: VideoType) => {
     // The video update is now handled by the useCropManagement hook
     // and the TanStack Query mutations. This handler is kept for compatibility
     // but may be removed as components are updated to use the new hooks directly.
@@ -98,10 +99,19 @@ export function DatasetDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading dataset...</p>
+      <div className="min-h-screen">
+        <Header />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center space-y-4">
+            <div className="relative">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+              <Sparkles className="h-4 w-4 text-yellow-500 absolute -top-1 -right-1 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-lg font-medium">Loading dataset...</p>
+              <p className="text-sm text-muted-foreground">Preparing your video workspace</p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -109,10 +119,21 @@ export function DatasetDetailPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-destructive mb-4">Failed to load dataset</p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
+      <div className="min-h-screen">
+        <Header />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
+              <Video className="h-8 w-8 text-destructive" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-lg font-medium text-destructive">Failed to load dataset</p>
+              <p className="text-sm text-muted-foreground">There was an error loading the dataset</p>
+            </div>
+            <Button onClick={() => window.location.reload()} variant="outline">
+              Try Again
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -120,67 +141,87 @@ export function DatasetDetailPage() {
 
   if (!dataset) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold mb-2">Dataset not found</h2>
-          <p className="text-muted-foreground mb-4">The requested dataset could not be found.</p>
-          <Button onClick={() => navigate('/')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Datasets
-          </Button>
+      <div className="min-h-screen">
+        <Header />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto">
+              <Video className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Dataset not found</h2>
+              <p className="text-sm text-muted-foreground">The requested dataset could not be found.</p>
+            </div>
+            <Button onClick={() => navigate('/')} variant="outline">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Datasets
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b">
-        <div className="container mx-auto p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => navigate('/')}
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold">{dataset.name}</h1>
-                <p className="text-sm text-muted-foreground">
-                  {dataset.videos?.length || 0} videos
-                </p>
-              </div>
+    <div className="min-h-screen">
+      <Header>
+        <Button 
+          variant="ghost" 
+          size="sm"
+          onClick={() => navigate('/')}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Datasets
+        </Button>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={() => setShowDeleteConfirm(true)}
+          className="text-destructive hover:text-destructive border-destructive/20 hover:bg-destructive/10"
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete
+        </Button>
+        <Button 
+          onClick={() => setShowUpload(true)}
+          className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Upload Videos
+        </Button>
+      </Header>
+
+      <main className="container mx-auto px-6 py-8">
+        {/* Dataset Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-16 h-16 bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl flex items-center justify-center">
+              <Video className="h-8 w-8 text-primary" />
             </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="destructive" 
-                size="sm"
-                onClick={() => setShowDeleteConfirm(true)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete Dataset
-              </Button>
-              <Button onClick={() => setShowUpload(true)}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload Videos
-              </Button>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{dataset.name}</h1>
+              <p className="text-muted-foreground">
+                {dataset.videos?.length || 0} video{(dataset.videos?.length || 0) !== 1 ? 's' : ''} in this dataset
+              </p>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="container mx-auto p-4">
-        <div className="grid grid-cols-12 gap-6">
+        <div className="grid grid-cols-12 gap-8">
           {/* Left Column - Video List */}
           <div className="col-span-12 lg:col-span-4 xl:col-span-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Videos</CardTitle>
+            <Card className="bg-gradient-to-br from-card to-card/50 backdrop-blur-sm border-border/50">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <Video className="h-5 w-5 text-primary" />
+                  Videos
+                  <span className="text-sm font-normal text-muted-foreground ml-auto">
+                    {dataset.videos?.length || 0}
+                  </span>
+                </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 max-h-[calc(100vh-200px)] overflow-y-auto">
+              <CardContent className="p-0 max-h-[calc(100vh-280px)] overflow-y-auto">
                 <VideoList
                   videos={dataset.videos || []}
                   selectedVideo={selectedVideo}
@@ -191,7 +232,7 @@ export function DatasetDetailPage() {
           </div>
 
           {/* Right Column - Video Detail and Processing */}
-          <div className="col-span-12 lg:col-span-8 xl:col-span-9 space-y-6">
+          <div className="col-span-12 lg:col-span-8 xl:col-span-9 space-y-8">
             {selectedVideo ? (
               <VideoDetailPanel
                 video={selectedVideo}
@@ -199,9 +240,15 @@ export function DatasetDetailPage() {
                 onVideoDelete={handleVideoDelete}
               />
             ) : (
-              <Card>
-                <CardContent className="flex items-center justify-center h-64">
-                  <p className="text-muted-foreground">Select a video to view details</p>
+              <Card className="bg-gradient-to-br from-card to-card/50 backdrop-blur-sm border-2 border-dashed border-muted-foreground/25">
+                <CardContent className="flex flex-col items-center justify-center h-64 space-y-4">
+                  <div className="w-16 h-16 bg-muted/50 rounded-full flex items-center justify-center">
+                    <Video className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <div className="text-center space-y-2">
+                    <p className="text-lg font-medium text-muted-foreground">Select a video to begin</p>
+                    <p className="text-sm text-muted-foreground">Choose a video from the list to configure and process</p>
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -212,7 +259,7 @@ export function DatasetDetailPage() {
             />
           </div>
         </div>
-      </div>
+      </main>
 
       {showUpload && (
         <VideoUploadZone
@@ -222,19 +269,27 @@ export function DatasetDetailPage() {
       )}
 
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Dataset</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete Dataset
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{dataset?.name}"? This will permanently delete:
-              <ul className="list-disc list-inside mt-2 text-sm">
+              Are you sure you want to delete <strong>"{dataset?.name}"</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-3">
+              <p className="text-sm font-medium text-destructive mb-2">This will permanently delete:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 text-destructive/80">
                 <li>The dataset and all video records</li>
                 <li>All uploaded video files</li>
                 <li>All processed output files</li>
               </ul>
-              This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
+            </div>
+            <p className="text-sm font-medium">This action cannot be undone.</p>
+          </div>
           <DialogFooter>
             <Button 
               variant="outline" 
@@ -245,7 +300,9 @@ export function DatasetDetailPage() {
             <Button 
               variant="destructive" 
               onClick={handleDatasetDelete}
+              className="bg-destructive hover:bg-destructive/90"
             >
+              <Trash2 className="mr-2 h-4 w-4" />
               Delete Dataset
             </Button>
           </DialogFooter>

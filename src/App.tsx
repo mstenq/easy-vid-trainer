@@ -9,7 +9,7 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
           <Routes>
             <Route path="/" element={<DatasetListPage />} />
             <Route path="/dataset/:id" element={<DatasetDetailPage />} />
